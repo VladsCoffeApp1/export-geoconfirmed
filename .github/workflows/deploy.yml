@@ -55,6 +55,7 @@ jobs:
           GCLOUD_CMD+=" --trigger-http --region=${{ env.REGION }} --gen2"
           GCLOUD_CMD+=" --source=./app --entry-point=main --memory=512Mi"
           GCLOUD_CMD+=" --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT_EMAIL }}"
+          GCLOUD_CMD+=" --allow-unauthenticated"
           GCLOUD_CMD+=" --quiet"
 
           GCLOUD_ENV_STRING='${{ steps.load_settings.outputs.gcloud_env_string }}'
