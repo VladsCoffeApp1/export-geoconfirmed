@@ -1,0 +1,40 @@
+[project]
+name = "export-geoconfirmed"
+version = "0.1.0"
+description = "Cloud Function to export GeoConfirmed events from BigQuery"
+requires-python = ">=3.12"
+dependencies = [
+    "functions-framework>=3.10.0",
+    "google-cloud-bigquery>=3.25.0",
+    "loguru>=0.7.3",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "email-validator>=2.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "mypy>=1.15.0",
+    "pre-commit>=4.2.0",
+    "pytest>=8.3.5",
+    "pytest-mock>=3.14.0",
+    "ruff>=0.11.4",
+]
+
+[tool.black]
+line-length = 140
+target-version = ["py312"]
+
+[tool.mypy]
+python_version = "3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 140
+
+[tool.ruff.lint]
+extend-select = ["PL"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

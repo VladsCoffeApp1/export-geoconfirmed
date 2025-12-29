@@ -1,0 +1,104 @@
+# Cloud Functions version 1.13 (Minimalist - No Scheduler)
+name: Deploy Cloud Function
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12.9
+
+      - name: Install script dependencies
+        run: pip install python-dotenv requests
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Load settings for GHA and GCloud
+        id: load_settings
+        run: python ./.github/scripts/load_env_vars.py project.env
+
+      - name: Lock dependencies
+        run: uv lock
+
+      - name: Export requirements.txt
+        run: uv export --format requirements-txt --locked > app/requirements.txt
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2.1.2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ env.PROJECT_ID }}
+          create_credentials_file: true
+
+      - name: Deploy Cloud Function
+        id: deploy_func
+        run: |
+          GCLOUD_CMD="gcloud functions deploy ${{ env.SERVICE_NAME }}"
+          GCLOUD_CMD+=" --project=${{ env.PROJECT_ID }}"
+          GCLOUD_CMD+=" --runtime=${{ env.RUNTIME }}"
+          GCLOUD_CMD+=" --timeout=${{ env.TIMEOUT }}"
+          GCLOUD_CMD+=" --trigger-http --region=${{ env.REGION }} --gen2"
+          GCLOUD_CMD+=" --source=./app --entry-point=main --memory=512Mi"
+          GCLOUD_CMD+=" --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT_EMAIL }}"
+          GCLOUD_CMD+=" --quiet"
+
+          GCLOUD_ENV_STRING='${{ steps.load_settings.outputs.gcloud_env_string }}'
+
+          if [ -z "$GCLOUD_ENV_STRING" ]; then
+            echo "::error::No environment variables were loaded from project.env"
+            exit 1
+          fi
+
+          GCLOUD_CMD+=" --set-env-vars \"$GCLOUD_ENV_STRING\""
+
+          start_time=$(date +%s)
+          eval "$GCLOUD_CMD" > deploy_output.log 2> deploy_error.log
+          exit_code=$?
+          end_time=$(date +%s)
+          duration=$((end_time - start_time))
+
+          if [ $exit_code -eq 0 ]; then
+            echo "deploy_duration=${duration}" >> $GITHUB_OUTPUT
+          else
+            error_snippet=$(tail -c 1000 deploy_error.log)
+            delimiter_err="EOF_ERR_$(date +%s%N)_${RANDOM}"
+            echo "deploy_error_snippet_raw<<${delimiter_err}" >> $GITHUB_OUTPUT
+            echo "${error_snippet}" >> $GITHUB_OUTPUT
+            echo "${delimiter_err}" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+        env:
+          GCLOUD_ENV_VARS: ${{ env.GCLOUD_ENV_VARS }}
+
+      - name: Notify Discord on Success
+        if: success()
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          DEPLOY_DURATION: ${{ steps.deploy_func.outputs.deploy_duration }}
+        run: |
+          PAYLOAD=$(python ./.github/scripts/generate_discord_payload.py success)
+          python ./.github/scripts/send_discord_notification.py "$PAYLOAD"
+
+      - name: Notify Discord on Failure
+        if: failure()
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          DEPLOY_ERROR_SNIPPET: ${{ steps.deploy_func.outputs.deploy_error_snippet_raw }}
+        run: |
+          PAYLOAD=$(python ./.github/scripts/generate_discord_payload.py failure)
+          python ./.github/scripts/send_discord_notification.py "$PAYLOAD"
